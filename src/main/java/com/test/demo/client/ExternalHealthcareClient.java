@@ -7,6 +7,7 @@ import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
 
+import com.test.demo.dto.ApiResponse;
 import com.test.demo.dto.ExternalLoginRequest;
 import com.test.demo.dto.PatientProfile;
 
@@ -14,8 +15,8 @@ import com.test.demo.dto.PatientProfile;
 public interface ExternalHealthcareClient {
 
     @PostExchange(url = "/eassso/login", contentType = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
-    ResponseEntity<String> login(@RequestBody ExternalLoginRequest request);
+    ResponseEntity<ApiResponse<String>> login(@RequestBody ExternalLoginRequest request);
 
     @GetExchange(url = "/easweb/lims/uf/patientProfile.do")
-    ResponseEntity<PatientProfile> getPatientProfile(@RequestBody String method);
+    ResponseEntity<ApiResponse<PatientProfile>> getPatientProfile(@RequestBody String method);
 }

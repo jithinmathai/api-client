@@ -85,8 +85,8 @@ public class ExternalHealthcareApiServiceTest {
 
     @Test
     void extractTokenFromResponse_success() {
-        // Given
-        String responseBody = "{\"token\":\"jwt_token_here\"}";
+        // Given - This method is now deprecated as we use ApiResponse<String> directly
+        String responseBody = "jwt_token_here";
 
         // When
         String result = service.extractTokenFromResponse(responseBody);
@@ -98,6 +98,24 @@ public class ExternalHealthcareApiServiceTest {
     @Test
     void extractCookiesFromResponse_success() {
         // Given
+        var response = org.springframework.http.ResponseEntity.ok()
+            .header("Set-Cookie", "JSESSIONID=ABC123; Path=/; HttpOnly")
+            .header("Set-Cookie", "AUTH_TOKEN=XYZ789; Path=/api; Secure")
+            .body("response body");
+
+        // When
+        Map<String, String> result = service.extractCookiesFromResponse(response);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result).hasSize(2);
+        assertThat(result).containsEntry("JSESSIONID", "ABC123");
+        assertThat(result).containsEntry("AUTH_TOKEN", "XYZ789");
+    }
+
+    @Test
+    void extractCookiesFromResponse_noCookies() {
+        // Given
         var response = org.springframework.http.ResponseEntity.ok("response body");
 
         // When
@@ -105,7 +123,7 @@ public class ExternalHealthcareApiServiceTest {
 
         // Then
         assertThat(result).isNotNull();
-        assertThat(result).isEmpty(); // TODO: implement actual cookie parsing
+        assertThat(result).isEmpty();
     }
 
     @Test

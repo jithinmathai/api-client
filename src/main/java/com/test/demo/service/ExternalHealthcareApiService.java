@@ -12,6 +12,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import com.test.demo.dto.ApiResponse;
 import com.test.demo.dto.AuthenticationResponse;
 import com.test.demo.dto.ExternalLoginRequest;
 import com.test.demo.dto.LoginRequest;
@@ -44,19 +45,25 @@ public class ExternalHealthcareApiService {
         MultiValueMap<String, String> form = buildFormDataForLogin(externalRequest);
         
         try {
-            ResponseEntity<String> response = externalApiRestClient.post()
+            ResponseEntity<ApiResponse<String>> response = externalApiRestClient.post()
                 .uri(loginEndpoint)
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(form)
                 .retrieve()
-                .toEntity(String.class);
+                .toEntity(new org.springframework.core.ParameterizedTypeReference<ApiResponse<String>>() {});
                 
-            String token = extractTokenFromResponse(response.getBody());
+            ApiResponse<String> apiResponse = response.getBody();
+            if (apiResponse == null || !apiResponse.isSuccess()) {
+                String errorMsg = apiResponse != null ? apiResponse.getMsg() : "No response received";
+                throw new AuthenticationFailedException("Login failed: " + errorMsg);
+            }
+            
+            String token = apiResponse.getData();
             Map<String, String> cookies = extractCookiesFromResponse(response);
             String subscriptionKey = "";
             
             if (token == null || token.isBlank()) {
-                throw new AuthenticationFailedException("Failed to extract token from login response");
+                throw new AuthenticationFailedException("No token received in successful login response");
             }
             
             String sessionId = sessionManagementService.createSession(request.getUsername(), token, subscriptionKey, cookies);
@@ -85,7 +92,7 @@ public class ExternalHealthcareApiService {
         }
 
         try {
-            ResponseEntity<PatientProfile> response = externalApiRestClient.get()
+            ResponseEntity<ApiResponse<PatientProfile>> response = externalApiRestClient.get()
                 .uri(uriBuilder -> uriBuilder
                     .path(patientProfileEndpoint)
                     .queryParam("method", method != null ? method : "checkOrNewPatient")
@@ -98,9 +105,15 @@ public class ExternalHealthcareApiService {
                     }
                 })
                 .retrieve()
-                .toEntity(PatientProfile.class);
+                .toEntity(new org.springframework.core.ParameterizedTypeReference<ApiResponse<PatientProfile>>() {});
                 
-            return response.getBody();
+            ApiResponse<PatientProfile> apiResponse = response.getBody();
+            if (apiResponse == null || !apiResponse.isSuccess()) {
+                String errorMsg = apiResponse != null ? apiResponse.getMsg() : "No response received";
+                throw new ExternalApiException("Failed to fetch patient profile: " + errorMsg);
+            }
+            
+            return apiResponse.getData();
         } catch (Exception e) {
             log.error("Failed to fetch patient profile", e);
             throw new ExternalApiException("Failed to fetch patient profile", e);
@@ -132,13 +145,22 @@ public class ExternalHealthcareApiService {
     }
 
     public String extractTokenFromResponse(String responseBody) {
-        // TODO: Implement proper token extraction based on actual response structure
-        return "jwt_token_here";
+        // This method is now deprecated since we're using ApiResponse<String> directly
+        // The token is now extracted from ApiResponse.getData()
+        return responseBody;
     }
 
-    public Map<String, String> extractCookiesFromResponse(ResponseEntity<String> response) {
-        // TODO: parse Set-Cookie headers
-        return new HashMap<>();
+    public Map<String, String> extractCookiesFromResponse(ResponseEntity<?> response) {
+        Map<String, String> cookies = new HashMap<>();
+        if (response.getHeaders().containsKey("Set-Cookie")) {
+            response.getHeaders().get("Set-Cookie").forEach(cookie -> {
+                String[] parts = cookie.split(";")[0].split("=", 2);
+                if (parts.length == 2) {
+                    cookies.put(parts[0].trim(), parts[1].trim());
+                }
+            });
+        }
+        return cookies;
     }
 
     public ExternalLoginRequest mapToExternalRequest(LoginRequest request) {
