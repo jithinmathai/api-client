@@ -5,7 +5,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.support.RestClientAdapter;
+import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
+import com.test.demo.client.QcareRestService;
 import com.test.demo.util.JsonUtils;
 
 import lombok.RequiredArgsConstructor;
@@ -31,7 +34,10 @@ public class RestClientConfig {
             .build();
     }
 
-    // Note: HttpServiceProxyFactory with RestClient has compatibility issues in Spring Boot 3.4.5
-    // Using direct RestClient approach in service layer for now
-    // TODO: Investigate HttpServiceProxyFactory compatibility in future Spring versions
+    @Bean
+    public QcareRestService qcareRestService(RestClient externalApiRestClient) {
+        RestClientAdapter adapter = RestClientAdapter.create(externalApiRestClient);
+        HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(adapter).build();
+        return factory.createClient(QcareRestService.class);
+    }
 }

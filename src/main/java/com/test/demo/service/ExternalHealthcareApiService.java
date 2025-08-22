@@ -12,11 +12,16 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClient;
 
+import com.test.demo.client.QcareRestService;
 import com.test.demo.dto.ApiResponse;
 import com.test.demo.dto.AuthenticationResponse;
+import com.test.demo.dto.ChitNumberRequest;
+import com.test.demo.dto.ChitNumberResponse;
 import com.test.demo.dto.ExternalLoginRequest;
 import com.test.demo.dto.LoginRequest;
 import com.test.demo.dto.PatientProfile;
+import com.test.demo.dto.ProfileRequest;
+import com.test.demo.dto.ProfileResponse;
 import com.test.demo.dto.SessionData;
 import com.test.demo.exception.AuthenticationFailedException;
 import com.test.demo.exception.ExternalApiException;
@@ -30,7 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ExternalHealthcareApiService {
 
-    private final RestClient externalApiRestClient;
+    private final QcareRestService qcareRestService;
+    private final RestClient externalApiRestClient; // Keep for backward compatibility
     private final SessionManagementService sessionManagementService;
     private final TokenManagementService tokenManagementService;
 
@@ -41,42 +47,41 @@ public class ExternalHealthcareApiService {
     private String patientProfileEndpoint;
 
     public AuthenticationResponse authenticateWithExternalSystem(LoginRequest request) {
-        ExternalLoginRequest externalRequest = mapToExternalRequest(request);
-        MultiValueMap<String, String> form = buildFormDataForLogin(externalRequest);
-        
         try {
-            ResponseEntity<ApiResponse<String>> response = externalApiRestClient.post()
-                .uri(loginEndpoint)
-                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .body(form)
-                .retrieve()
-                .toEntity(new org.springframework.core.ParameterizedTypeReference<ApiResponse<String>>() {});
-                
-            ApiResponse<String> apiResponse = response.getBody();
+            // Use the new QcareRestService interface
+            ProfileRequest profileRequest = mapToProfileRequest(request);
+            
+            ResponseEntity<ApiResponse<ProfileResponse>> response = qcareRestService.login(profileRequest);
+            
+            ApiResponse<ProfileResponse> apiResponse = response.getBody();
             if (apiResponse == null || !apiResponse.isSuccess()) {
                 String errorMsg = apiResponse != null ? apiResponse.getMsg() : "No response received";
                 throw new AuthenticationFailedException("Login failed: " + errorMsg);
             }
             
-            String token = apiResponse.getData();
-            Map<String, String> cookies = extractCookiesFromResponse(response);
-            String subscriptionKey = "";
-            
-            if (token == null || token.isBlank()) {
+            ProfileResponse profileResponse = apiResponse.getData();
+            if (profileResponse == null || profileResponse.getToken() == null) {
                 throw new AuthenticationFailedException("No token received in successful login response");
             }
             
-            String sessionId = sessionManagementService.createSession(request.getUsername(), token, subscriptionKey, cookies);
+            Map<String, String> cookies = extractCookiesFromResponse(response);
+            String sessionId = sessionManagementService.createSession(
+                request.getUsername(), 
+                profileResponse.getToken(), 
+                profileResponse.getSubscriptionKey(), 
+                cookies
+            );
+            
             SessionData sessionData = sessionManagementService.getSession(sessionId);
             tokenManagementService.storeToken(sessionId, sessionData);
             
             return AuthenticationResponse.builder()
                 .success(true)
-                .token(token)
-                .subscriptionKey(subscriptionKey)
-                .expiresIn(3600L)
+                .token(profileResponse.getToken())
+                .subscriptionKey(profileResponse.getSubscriptionKey())
+                .expiresIn(profileResponse.getExpiresIn() != null ? profileResponse.getExpiresIn() : 3600L)
                 .sessionId(sessionId)
-                .message("Authenticated")
+                .message(profileResponse.getMessage() != null ? profileResponse.getMessage() : "Authenticated")
                 .build();
         } catch (Exception e) {
             log.error("Authentication failed", e);
@@ -179,6 +184,72 @@ public class ExternalHealthcareApiService {
             .loginFlow(request.getLoginFlow())
             .clientHostIP(request.getClientHostIP())
             .build();
+    }
+
+    public ProfileRequest mapToProfileRequest(LoginRequest request) {
+        return ProfileRequest.builder()
+            .username(request.getUsername())
+            .password(request.getPassword())
+            .dataCenterCapp("capp")
+            .loginFlow("eassso")
+            .clientHostIP("127.0.0.1")
+            .method("login")
+            .build();
+    }
+
+    // New methods using QcareRestService
+    public ProfileResponse createPatientProfile(String sessionId, ProfileRequest profileRequest) {
+        refreshTokenIfNeeded(sessionId);
+        SessionData session = tokenManagementService.getToken(sessionId);
+        if (session == null) {
+            throw new SessionExpiredException("Session not found or expired");
+        }
+
+        try {
+            // Set session info in the request
+            profileRequest.setSessionId(sessionId);
+            profileRequest.setToken(session.getToken());
+            
+            ResponseEntity<ApiResponse<ProfileResponse>> response = qcareRestService.createProfile(profileRequest);
+            
+            ApiResponse<ProfileResponse> apiResponse = response.getBody();
+            if (apiResponse == null || !apiResponse.isSuccess()) {
+                String errorMsg = apiResponse != null ? apiResponse.getMsg() : "No response received";
+                throw new ExternalApiException("Failed to create patient profile: " + errorMsg);
+            }
+            
+            return apiResponse.getData();
+        } catch (Exception e) {
+            log.error("Failed to create patient profile", e);
+            throw new ExternalApiException("Failed to create patient profile", e);
+        }
+    }
+
+    public ChitNumberResponse generateChitNumber(String sessionId, ChitNumberRequest chitRequest) {
+        refreshTokenIfNeeded(sessionId);
+        SessionData session = tokenManagementService.getToken(sessionId);
+        if (session == null) {
+            throw new SessionExpiredException("Session not found or expired");
+        }
+
+        try {
+            // Set session info in the request
+            chitRequest.setSessionId(sessionId);
+            chitRequest.setToken(session.getToken());
+            
+            ResponseEntity<ApiResponse<ChitNumberResponse>> response = qcareRestService.createChitNum(chitRequest);
+            
+            ApiResponse<ChitNumberResponse> apiResponse = response.getBody();
+            if (apiResponse == null || !apiResponse.isSuccess()) {
+                String errorMsg = apiResponse != null ? apiResponse.getMsg() : "No response received";
+                throw new ExternalApiException("Failed to generate chit number: " + errorMsg);
+            }
+            
+            return apiResponse.getData();
+        } catch (Exception e) {
+            log.error("Failed to generate chit number", e);
+            throw new ExternalApiException("Failed to generate chit number", e);
+        }
     }
 }
 
