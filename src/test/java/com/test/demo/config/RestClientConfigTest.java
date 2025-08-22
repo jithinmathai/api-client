@@ -56,10 +56,11 @@ public class RestClientConfigTest {
     }
 
     @Test
-    void restClientPropertiesHaveCorrectEndpoints() {
-        // Then
-        assertThat(restClientProperties.getLoginEndpoint()).isEqualTo("/api/phygital/capp/eassso/login");
-        assertThat(restClientProperties.getPatientProfileEndpoint()).isEqualTo("/api/phygital/capp/easweb/lims/uf/patientProfile.do");
+    void restClientPropertiesHaveCorrectConfiguration() {
+        // Then - Only base URL and connection properties are configured
+        // Endpoints are defined in QcareRestService @HttpExchange annotations
         assertThat(restClientProperties.getMaxRetries()).isEqualTo(3);
+        assertThat(restClientProperties.getTimeout()).isEqualTo(30000);
+        assertThat(restClientProperties.getConnectionTimeout()).isEqualTo(10000);
     }
 }

@@ -35,8 +35,7 @@ public class ExternalHealthcareApiServiceTest {
 
     @BeforeEach
     void setUp() {
-        ReflectionTestUtils.setField(service, "loginEndpoint", "/api/login");
-        ReflectionTestUtils.setField(service, "patientProfileEndpoint", "/api/profile");
+        // No longer need to set endpoint fields since they're defined in QcareRestService @HttpExchange annotations
     }
 
     @Test

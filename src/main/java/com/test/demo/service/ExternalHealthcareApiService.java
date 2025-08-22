@@ -40,11 +40,8 @@ public class ExternalHealthcareApiService {
     private final SessionManagementService sessionManagementService;
     private final TokenManagementService tokenManagementService;
 
-    @Value("${external.healthcare.login-endpoint}")
-    private String loginEndpoint;
-
-    @Value("${external.healthcare.patient-profile-endpoint}")
-    private String patientProfileEndpoint;
+    // Endpoints are now defined in QcareRestService @HttpExchange annotations
+    // No need for @Value annotations since we use declarative HTTP client
 
     public AuthenticationResponse authenticateWithExternalSystem(LoginRequest request) {
         try {
@@ -99,7 +96,7 @@ public class ExternalHealthcareApiService {
         try {
             ResponseEntity<ApiResponse<PatientProfile>> response = externalApiRestClient.get()
                 .uri(uriBuilder -> uriBuilder
-                    .path(patientProfileEndpoint)
+                    .path("/api/phygital/easweb/lims/uf/patientProfile.do")
                     .queryParam("method", method != null ? method : "checkOrNewPatient")
                     .build())
                 .headers(headers -> {
