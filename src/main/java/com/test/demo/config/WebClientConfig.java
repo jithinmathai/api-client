@@ -1,5 +1,7 @@
 package com.test.demo.config;
 
+import java.time.Duration;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -7,6 +9,10 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+
+
+import com.test.demo.client.ExternalHealthcareClient;
 
 @Configuration
 public class WebClientConfig {
@@ -24,11 +30,15 @@ public class WebClientConfig {
 
         return RestClient.builder()
             .baseUrl(baseUrl)
-            .requestFactory(requestFactory)
             .defaultHeader(HttpHeaders.USER_AGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .defaultHeader(HttpHeaders.CONNECTION, "keep-alive")
+            .requestFactory(requestFactory)
             .build();
     }
+
+    // Note: HttpServiceProxyFactory with RestClient has compatibility issues in Spring Boot 3.4.5
+    // Using direct RestClient approach in service layer for now
+    // TODO: Investigate HttpServiceProxyFactory compatibility in future Spring versions
 }
 
 

@@ -5,10 +5,12 @@ import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestClient;
 
 import com.test.demo.dto.AuthenticationResponse;
 import com.test.demo.dto.ExternalLoginRequest;
@@ -27,7 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ExternalHealthcareApiService {
 
-    private final HttpClientService httpClientService;
+    private final RestClient externalApiRestClient;
     private final SessionManagementService sessionManagementService;
     private final TokenManagementService tokenManagementService;
 
@@ -40,26 +42,39 @@ public class ExternalHealthcareApiService {
     public AuthenticationResponse authenticateWithExternalSystem(LoginRequest request) {
         ExternalLoginRequest externalRequest = mapToExternalRequest(request);
         MultiValueMap<String, String> form = buildFormDataForLogin(externalRequest);
-
-        HttpHeaders headers = new HttpHeaders();
-        String body = httpClientService.postFormData(loginEndpoint, form, headers);
-        String token = extractTokenFromResponse(body);
-        Map<String, String> cookies = new HashMap<>();
-        String subscriptionKey = "";
-        if (token == null || token.isBlank()) {
-            throw new AuthenticationFailedException("Failed to extract token from login response");
+        
+        try {
+            ResponseEntity<String> response = externalApiRestClient.post()
+                .uri(loginEndpoint)
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(form)
+                .retrieve()
+                .toEntity(String.class);
+                
+            String token = extractTokenFromResponse(response.getBody());
+            Map<String, String> cookies = extractCookiesFromResponse(response);
+            String subscriptionKey = "";
+            
+            if (token == null || token.isBlank()) {
+                throw new AuthenticationFailedException("Failed to extract token from login response");
+            }
+            
+            String sessionId = sessionManagementService.createSession(request.getUsername(), token, subscriptionKey, cookies);
+            SessionData sessionData = sessionManagementService.getSession(sessionId);
+            tokenManagementService.storeToken(sessionId, sessionData);
+            
+            return AuthenticationResponse.builder()
+                .success(true)
+                .token(token)
+                .subscriptionKey(subscriptionKey)
+                .expiresIn(3600L)
+                .sessionId(sessionId)
+                .message("Authenticated")
+                .build();
+        } catch (Exception e) {
+            log.error("Authentication failed", e);
+            throw new AuthenticationFailedException("External authentication failed", e);
         }
-        String sessionId = sessionManagementService.createSession(request.getUsername(), token, subscriptionKey, cookies);
-        SessionData sessionData = sessionManagementService.getSession(sessionId);
-        tokenManagementService.storeToken(sessionId, sessionData);
-        return AuthenticationResponse.builder()
-            .success(true)
-            .token(token)
-            .subscriptionKey(subscriptionKey)
-            .expiresIn(3600L)
-            .sessionId(sessionId)
-            .message("Authenticated")
-            .build();
     }
 
     public PatientProfile getPatientProfile(String sessionId, String method) {
@@ -69,15 +84,26 @@ public class ExternalHealthcareApiService {
             throw new SessionExpiredException("Session not found or expired");
         }
 
-        Map<String, String> query = new HashMap<>();
-        query.put("method", method != null ? method : "checkOrNewPatient");
-
-        String body = httpClientService.getWithCookies(patientProfileEndpoint, session.getCookies(), query);
         try {
-            // TODO: Map actual response to PatientProfile using ObjectMapper when schema known
-            return PatientProfile.builder().build();
+            ResponseEntity<PatientProfile> response = externalApiRestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                    .path(patientProfileEndpoint)
+                    .queryParam("method", method != null ? method : "checkOrNewPatient")
+                    .build())
+                .headers(headers -> {
+                    if (session.getCookies() != null) {
+                        StringBuilder cookieHeader = new StringBuilder();
+                        session.getCookies().forEach((k, v) -> cookieHeader.append(k).append("=").append(v).append("; "));
+                        headers.add(HttpHeaders.COOKIE, cookieHeader.toString());
+                    }
+                })
+                .retrieve()
+                .toEntity(PatientProfile.class);
+                
+            return response.getBody();
         } catch (Exception e) {
-            throw new ExternalApiException("Failed to parse patient profile", e);
+            log.error("Failed to fetch patient profile", e);
+            throw new ExternalApiException("Failed to fetch patient profile", e);
         }
     }
 
@@ -115,7 +141,7 @@ public class ExternalHealthcareApiService {
         return new HashMap<>();
     }
 
-    private ExternalLoginRequest mapToExternalRequest(LoginRequest request) {
+    public ExternalLoginRequest mapToExternalRequest(LoginRequest request) {
         return ExternalLoginRequest.builder()
             .username(request.getUsername())
             .password(request.getPassword())
